@@ -1,6 +1,7 @@
 import pandas as pd
 from datetime import datetime
 from tabulate import tabulate
+import os
 
 class DataManager:
 
@@ -8,19 +9,28 @@ class DataManager:
     # CONSTRUCTOR
     # ====================================
     def __init__(self):
-
         self.ruta_productos = "datos_csv/productos.csv"
         self.ruta_tickets   = "datos_csv/tickets.csv"
         self.ruta_items     = "datos_csv/items.csv"
 
-        # Cargar CSV
-        self.productos = pd.read_csv(self.ruta_productos, dtype=str)
-        self.tickets   = pd.read_csv(self.ruta_tickets, dtype=str)
-        self.items     = pd.read_csv(self.ruta_items, dtype=str)
+        # Cargar CSV o crear DataFrames vacíos si no existen
+        self.productos = pd.read_csv(self.ruta_productos, dtype=str) if os.path.exists(self.ruta_productos) else pd.DataFrame()
+        self.tickets   = pd.read_csv(self.ruta_tickets, dtype=str) if os.path.exists(self.ruta_tickets) else pd.DataFrame()
+        self.items     = pd.read_csv(self.ruta_items, dtype=str) if os.path.exists(self.ruta_items) else pd.DataFrame()
 
         # Convertir a numéricos donde aplica
-        self.productos["precio_lista"] = self.productos["precio_lista"].astype(float)
-        self.productos["costo_unitario"] = self.productos["costo_unitario"].astype(float)
+        if not self.productos.empty:
+            for col in ["precio_lista", "costo_unitario"]:
+                if col in self.productos.columns:
+                    self.productos[col] = self.productos[col].astype(float)
+
+        if not self.items.empty:
+            for col in ["precio_venta", "venta_item", "costo_venta", "utilidad"]:
+                if col in self.items.columns:
+                    self.items[col] = self.items[col].astype(float)
+
+        if not self.tickets.empty and "venta_ticket" in self.tickets.columns:
+            self.tickets["venta_ticket"] = self.tickets["venta_ticket"].astype(float)
 
         # Mapa de estilos
         mapa_estilos = {
@@ -29,13 +39,12 @@ class DataManager:
             "E011": "UNISEX", "E012": "UNISEX", "E013": "UNISEX", "E014": "UNISEX", "E015": "UNISEX",
             "E016": "RUNNER", "E017": "RUNNER", "E018": "RUNNER", "E019": "RUNNER", "E020": "RUNNER"
         }
-
-        self.productos["tipo_estilo"] = self.productos["id_estilo"].map(mapa_estilos)
+        if not self.productos.empty and "id_estilo" in self.productos.columns:
+            self.productos["tipo_estilo"] = self.productos["id_estilo"].map(mapa_estilos)
 
         # Inicializar tablas si están vacías
         if self.tickets.empty:
             self.tickets = pd.DataFrame(columns=["ticket","fecha_venta","id_local","venta_ticket"])
-
         if self.items.empty:
             self.items = pd.DataFrame(columns=[
                 "ticket","item","id_estilo","id_medida",
@@ -43,15 +52,14 @@ class DataManager:
                 "costo_venta","utilidad"
             ])
 
-
     # ====================================
     # GUARDAR CSV
     # ====================================
     def guardar(self):
+        os.makedirs("datos_csv", exist_ok=True)
         self.productos.to_csv(self.ruta_productos, index=False)
         self.tickets.to_csv(self.ruta_tickets, index=False)
         self.items.to_csv(self.ruta_items, index=False)
-
 
     # ====================================
     # UTILIDADES DE TABLAS
@@ -61,31 +69,27 @@ class DataManager:
             return "No hay datos."
         return tabulate(df, headers="keys", tablefmt="grid", showindex=False)
 
-
     # ====================================
     # CONTAR ESTILOS
     # ====================================
     def contar_estilos(self):
-        return len(self.productos["id_estilo"].unique())
-
+        return len(self.productos["id_estilo"].unique()) if not self.productos.empty else 0
 
     # ====================================
     # CATÁLOGO (LIMPIO, SIN ÍNDICES)
     # ====================================
     def ver_catalogo_estilos(self):
+        if self.productos.empty:
+            return "No hay productos."
         df = self.productos[["id_estilo", "estilo", "tipo_estilo"]].drop_duplicates()
-
-        df = df.reset_index(drop=True)          # eliminar índice
-        df.insert(0, "#", df.index + 1)         # agregar número manual
-
-        # SOLO estas columnas
+        df = df.reset_index(drop=True)
+        df.insert(0, "#", df.index + 1)
         return tabulate(
             df[["#", "id_estilo", "estilo", "tipo_estilo"]],
             headers="keys",
             tablefmt="grid",
             showindex=False
         )
-
 
     # ====================================
     # VER TICKETS / ITEMS / PRODUCTOS
@@ -98,7 +102,6 @@ class DataManager:
 
     def ver_productos(self):
         return self.tabla(self.productos)
-
 
     # ====================================
     # ELEGIR ESTILO REAL (BASADO EN #)
@@ -123,60 +126,46 @@ class DataManager:
             "tipo_estilo": row["tipo_estilo"]
         }
 
-
     # ====================================
     # SOLO MOSTRAR TALLAS DISPONIBLES
     # ====================================
     def elegir_medida(self, id_estilo, nombre_estilo):
-
         df = self.productos[self.productos["id_estilo"] == id_estilo]
-
+        if df.empty:
+            print("❌ No hay tallas para este estilo.")
+            return None
         tallas = sorted(df["id_medida"].astype(int).tolist())
         tallas_str = ", ".join(str(t) for t in tallas)
-
         print(f"\nTallas disponibles para {nombre_estilo}: {tallas_str}")
-
         med = input("Elige la talla: ").strip()
-
         if not med.isdigit():
             print("❌ Talla inválida.")
             return None
-
         med = int(med)
-
         if med not in tallas:
             print("❌ Esa talla NO existe para este estilo.")
             return None
-
         return str(med).zfill(3)
-
 
     # ====================================
     # ELEGIR CANTIDAD
     # ====================================
     def elegir_cantidad(self):
         c = input("\nCantidad: ").strip()
-
         if not c.isdigit():
             print("❌ Cantidad inválida.")
             return None
-
         c = int(c)
-
         if c <= 0:
             print("❌ Cantidad debe ser mayor a 0.")
             return None
-
         return c
-
 
     # ====================================
     # VALIDACIÓN DE DISPONIBILIDAD
-    # Inventario global → siempre disponible
     # ====================================
     def validar_disponibilidad_carrito(self, id_local, carrito):
         return []
-
 
     # ====================================
     # RESUMEN DEL CARRITO
@@ -184,7 +173,6 @@ class DataManager:
     def generar_resumen_carrito(self, carrito):
         tabla_data = []
         total = 0
-
         for c in carrito:
             prod = self.productos[
                 (self.productos["id_estilo"] == c["id_estilo"]) &
@@ -212,18 +200,15 @@ class DataManager:
 
         return tabla_impresa + f"\n\nTOTAL A PAGAR: ${total:.2f}"
 
-
     # ====================================
     # PROCESAR COMPRA
     # ====================================
     def procesar_carrito(self, id_local, carrito):
-
         nuevo_ticket = 1001 if self.tickets.empty else int(self.tickets["ticket"].astype(int).max()) + 1
-        fecha = str(datetime.now().date())
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total_venta = 0
 
         for idx, item in enumerate(carrito, start=1):
-
             prod = self.productos[
                 (self.productos["id_estilo"] == item["id_estilo"]) &
                 (self.productos["id_medida"] == item["medida"])
@@ -231,12 +216,10 @@ class DataManager:
 
             precio = float(prod["precio_lista"])
             costo  = float(prod["costo_unitario"])
-
             venta = precio * item["cantidad"]
             total_venta += venta
-
             costo_total = costo * item["cantidad"]
-            utilidad = venta - costo_total
+            utilidad = round(venta - costo_total, 2)
 
             new_item = {
                 "ticket": nuevo_ticket,
@@ -260,7 +243,5 @@ class DataManager:
         }
 
         self.tickets = pd.concat([self.tickets, pd.DataFrame([ticket_row])], ignore_index=True)
-
         self.guardar()
-
         return f"Compra realizada exitosamente. Ticket #{nuevo_ticket}"
